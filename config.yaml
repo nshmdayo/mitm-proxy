@@ -1,0 +1,21 @@
+# Proxy server address
+addr: ":8080"
+
+# Enable mock server mode
+mock_server: false
+
+# MITM proxy settings
+mitm:
+  # Enable MITM proxy
+  enabled: true
+  # Persist CA certificate and key
+  persist_ca: true
+  # Directory to store certificates
+  cert_dir: "certs"
+
+# Request/Response modification settings
+modification:
+  # Enable modification
+  enabled: true
+  # Log verbosely
+  verbose: true
