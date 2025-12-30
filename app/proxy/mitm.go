@@ -20,6 +20,35 @@ import (
 	"nproxy/app/config"
 )
 
+// singleConnListener accepts a single connection and then closes.
+type singleConnListener struct {
+	conn net.Conn
+	ch   chan net.Conn
+}
+
+func newSingleConnListener(conn net.Conn) *singleConnListener {
+	ch := make(chan net.Conn, 1)
+	ch <- conn
+	return &singleConnListener{conn: conn, ch: ch}
+}
+
+func (l *singleConnListener) Accept() (net.Conn, error) {
+	c, ok := <-l.ch
+	if !ok {
+		return nil, net.ErrClosed
+	}
+	close(l.ch)
+	return c, nil
+}
+
+func (l *singleConnListener) Close() error {
+	return nil
+}
+
+func (l *singleConnListener) Addr() net.Addr {
+	return l.conn.LocalAddr()
+}
+
 // MITMProxy is a structure that holds the configuration for MITM proxy server
 type MITMProxy struct {
 	CA      *x509.Certificate
@@ -97,7 +126,7 @@ func (m *MITMProxy) createReverseProxy() *httputil.ReverseProxy {
 			}
 			r.URL.Scheme = target.Scheme
 			r.URL.Host = target.Host
-			r.URL.Path = r.URL.Path
+			// r.URL.Path is already correct, no need to assign
 
 			if m.Handler != nil {
 				m.Handler(r, nil)
@@ -179,7 +208,7 @@ func (m *MITMProxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	server := &http.Server{
 		Handler: proxy,
 	}
-	server.Serve(clientTLSConn)
+	server.Serve(newSingleConnListener(clientTLSConn))
 }
 
 // generateCA は CA証明書と秘密鍵を生成する
