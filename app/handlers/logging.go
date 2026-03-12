@@ -6,8 +6,12 @@ import (
 	"strings"
 )
 
-var sensitiveHeaders = []string{
-	"authorization", "cookie", "set-cookie", "x-api-key", "x-auth-token",
+var sensitiveHeaders = map[string]struct{}{
+	"authorization": {},
+	"cookie":        {},
+	"set-cookie":    {},
+	"x-api-key":     {},
+	"x-auth-token":  {},
 }
 
 // LoggingHandler creates a Handler that logs requests and responses
@@ -36,11 +40,6 @@ func logHeaders(headers http.Header, prefix string) {
 }
 
 func isSensitiveHeader(key string) bool {
-	lower := strings.ToLower(key)
-	for _, sensitive := range sensitiveHeaders {
-		if lower == sensitive {
-			return true
-		}
-	}
-	return false
+	_, ok := sensitiveHeaders[strings.ToLower(key)]
+	return ok
 }
