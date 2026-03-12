@@ -1,4 +1,4 @@
-module mitm-proxy
+module mitmproxy
 
 go 1.23.0
 

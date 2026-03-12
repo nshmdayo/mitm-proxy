@@ -3,10 +3,10 @@ package main
 import (
 	"log"
 
-	"mitm-proxy/app/config"
-	"mitm-proxy/app/handlers"
-	"mitm-proxy/app/mock"
-	"mitm-proxy/app/proxy"
+	"mitmproxy/app/config"
+	"mitmproxy/app/handlers"
+	"mitmproxy/app/mock"
+	"mitmproxy/app/proxy"
 )
 
 type server = proxy.Server

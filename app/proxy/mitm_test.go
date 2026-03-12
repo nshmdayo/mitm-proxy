@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"mitm-proxy/app/config"
-	"mitm-proxy/app/handlers"
+	"mitmproxy/app/config"
+	"mitmproxy/app/handlers"
 )
 
 func TestNewMITMProxy(t *testing.T) {
