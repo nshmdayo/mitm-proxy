@@ -9,9 +9,7 @@ import (
 	"nproxy/app/proxy"
 )
 
-type server interface {
-	Start() error
-}
+type server = proxy.Server
 
 func main() {
 	cfg, err := config.LoadConfig("config.yaml")
