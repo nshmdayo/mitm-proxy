@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/pem"
 	"fmt"
 	"log"
 	"math/big"
@@ -14,13 +13,13 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"os"
 	"time"
 
 	"nproxy/app/config"
+	"nproxy/app/handlers"
 )
 
-// singleConnListener accepts a single connection and then closes.
+// singleConnListener accepts exactly one connection and then closes.
 type singleConnListener struct {
 	conn net.Conn
 	ch   chan net.Conn
@@ -41,24 +40,20 @@ func (l *singleConnListener) Accept() (net.Conn, error) {
 	return c, nil
 }
 
-func (l *singleConnListener) Close() error {
-	return nil
-}
+func (l *singleConnListener) Close() error { return nil }
 
-func (l *singleConnListener) Addr() net.Addr {
-	return l.conn.LocalAddr()
-}
+func (l *singleConnListener) Addr() net.Addr { return l.conn.LocalAddr() }
 
-// MITMProxy is a structure that holds the configuration for MITM proxy server
+// MITMProxy holds the configuration for the MITM proxy server.
 type MITMProxy struct {
 	CA      *x509.Certificate
 	CAKey   *rsa.PrivateKey
 	CertDir string
 	Addr    string
-	Handler func(*http.Request, *http.Response) // Handler for request/response modification
+	Handler handlers.Handler
 }
 
-// NewMITMProxy creates a new MITM proxy
+// NewMITMProxy creates a new MITMProxy from the given configuration.
 func NewMITMProxy(cfg *config.Config) (*MITMProxy, error) {
 	certDir := cfg.Mitm.CertDir
 	var ca *x509.Certificate
@@ -94,25 +89,29 @@ func NewMITMProxy(cfg *config.Config) (*MITMProxy, error) {
 	}, nil
 }
 
-// Start starts the MITM proxy server
+// SetHandler sets the request/response modification handler.
+func (m *MITMProxy) SetHandler(h handlers.Handler) {
+	m.Handler = h
+}
+
+// Start starts the MITM proxy server.
 func (m *MITMProxy) Start() error {
-	proxy := m.createReverseProxy()
+	rp := m.createReverseProxy()
 
 	server := &http.Server{
-		Addr:    m.Addr,
+		Addr: m.Addr,
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method == http.MethodConnect {
 				m.handleConnect(w, r)
 			} else {
-				proxy.ServeHTTP(w, r)
+				rp.ServeHTTP(w, r)
 			}
 		}),
 	}
 
-	log.Printf("MITM Proxy server starting on %s", m.Addr)
-	log.Printf("CA certificate is in %s/ca.crt", m.CertDir)
+	log.Printf("MITM proxy starting on %s", m.Addr)
+	log.Printf("CA certificate: %s/ca.crt", m.CertDir)
 	log.Println("Install the CA certificate in your browser to avoid SSL warnings")
-
 	return server.ListenAndServe()
 }
 
@@ -126,22 +125,19 @@ func (m *MITMProxy) createReverseProxy() *httputil.ReverseProxy {
 			}
 			r.URL.Scheme = target.Scheme
 			r.URL.Host = target.Host
-			// r.URL.Path is already correct, no need to assign
-
 			if m.Handler != nil {
-				m.Handler(r, nil)
+				m.Handler.Handle(r, nil)
 			}
 		},
 		ModifyResponse: func(resp *http.Response) error {
 			if m.Handler != nil {
-				m.Handler(nil, resp)
+				m.Handler.Handle(nil, resp)
 			}
 			return nil
 		},
 	}
 }
 
-// handleConnect は HTTPS CONNECT メソッドを処理する
 func (m *MITMProxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	log.Printf("CONNECT request to %s", r.Host)
 
@@ -169,9 +165,7 @@ func (m *MITMProxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	defer clientConn.Close()
 
-	// Acknowledge the CONNECT request
-	_, err = clientConn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
-	if err != nil {
+	if _, err = clientConn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n")); err != nil {
 		log.Printf("Failed to send 200 OK to client: %v", err)
 		return
 	}
@@ -183,75 +177,31 @@ func (m *MITMProxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	defer clientTLSConn.Close()
 
-	proxy := &httputil.ReverseProxy{
+	rp := &httputil.ReverseProxy{
 		Director: func(req *http.Request) {
 			req.URL.Scheme = "https"
 			req.URL.Host = r.Host
 			req.Host = r.Host
 			if m.Handler != nil {
-				m.Handler(req, nil)
+				m.Handler.Handle(req, nil)
 			}
 		},
 		ModifyResponse: func(resp *http.Response) error {
 			if m.Handler != nil {
-				m.Handler(nil, resp)
+				m.Handler.Handle(nil, resp)
 			}
 			return nil
 		},
-		// Use a transport that skips verification for the self-signed certs
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		},
 	}
 
-	// Create a new server to handle the requests over the hijacked connection
-	server := &http.Server{
-		Handler: proxy,
-	}
+	server := &http.Server{Handler: rp}
 	server.Serve(newSingleConnListener(clientTLSConn))
 }
 
-// generateCA は CA証明書と秘密鍵を生成する
-func generateCA() (*x509.Certificate, *rsa.PrivateKey, error) {
-	// RSA秘密鍵を生成
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// CA証明書テンプレートを作成
-	template := x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject: pkix.Name{
-			Organization: []string{"MITM Proxy"},
-			Country:      []string{"JP"},
-		},
-		NotBefore:             time.Now(),
-		NotAfter:              time.Now().Add(365 * 24 * time.Hour), // 1年間有効
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true,
-		IsCA:                  true,
-	}
-
-	// 自己署名証明書を作成
-	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// 証明書をパース
-	cert, err := x509.ParseCertificate(certDER)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return cert, key, nil
-}
-
-// generateCert は指定されたホスト名用のサーバー証明書を生成する
 func (m *MITMProxy) generateCert(host string) (*tls.Certificate, error) {
-	// RSA秘密鍵を生成
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return nil, err
@@ -259,7 +209,6 @@ func (m *MITMProxy) generateCert(host string) (*tls.Certificate, error) {
 
 	hostname := extractHostname(host)
 
-	// サーバー証明書テンプレートを作成
 	template := x509.Certificate{
 		SerialNumber: big.NewInt(time.Now().Unix()),
 		Subject: pkix.Name{
@@ -273,92 +222,18 @@ func (m *MITMProxy) generateCert(host string) (*tls.Certificate, error) {
 		DNSNames:              []string{hostname},
 	}
 
-	// IP アドレスの場合は IPAddresses に追加
 	if ip := net.ParseIP(hostname); ip != nil {
 		template.IPAddresses = []net.IP{ip}
 	}
 
-	// CA で署名された証明書を作成
 	certDER, err := x509.CreateCertificate(rand.Reader, &template, m.CA, &key.PublicKey, m.CAKey)
 	if err != nil {
 		return nil, err
 	}
 
-	// TLS証明書を作成
 	cert := tls.Certificate{
 		Certificate: [][]byte{certDER},
 		PrivateKey:  key,
 	}
-
 	return &cert, nil
-}
-
-// saveCA は CA証明書と秘密鍵をファイルに保存する
-func saveCA(certDir string, ca *x509.Certificate, caKey *rsa.PrivateKey) error {
-	if err := os.MkdirAll(certDir, 0755); err != nil {
-		return fmt.Errorf("failed to create cert directory: %v", err)
-	}
-
-	// CA証明書をPEM形式で保存
-	certFile, err := os.Create(fmt.Sprintf("%s/ca.crt", certDir))
-	if err != nil {
-		return err
-	}
-	defer certFile.Close()
-	if err := pem.Encode(certFile, &pem.Block{Type: "CERTIFICATE", Bytes: ca.Raw}); err != nil {
-		return err
-	}
-
-	// CA秘密鍵をPEM形式で保存
-	keyFile, err := os.Create(fmt.Sprintf("%s/ca.key", certDir))
-	if err != nil {
-		return err
-	}
-	defer keyFile.Close()
-	return pem.Encode(keyFile, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(caKey)})
-}
-
-// loadCA はファイルからCA証明書と秘密鍵を読み込む
-func loadCA(certDir string) (*x509.Certificate, *rsa.PrivateKey, error) {
-	certBytes, err := os.ReadFile(fmt.Sprintf("%s/ca.crt", certDir))
-	if err != nil {
-		return nil, nil, err
-	}
-	certBlock, _ := pem.Decode(certBytes)
-	if certBlock == nil {
-		return nil, nil, fmt.Errorf("failed to decode CA certificate")
-	}
-	ca, err := x509.ParseCertificate(certBlock.Bytes)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	keyBytes, err := os.ReadFile(fmt.Sprintf("%s/ca.key", certDir))
-	if err != nil {
-		return nil, nil, err
-	}
-	keyBlock, _ := pem.Decode(keyBytes)
-	if keyBlock == nil {
-		return nil, nil, fmt.Errorf("failed to decode CA private key")
-	}
-	caKey, err := x509.ParsePKCS1PrivateKey(keyBlock.Bytes)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return ca, caKey, nil
-}
-
-// extractHostname はホスト:ポート形式からホスト名を抽出する
-func extractHostname(host string) string {
-	hostname, _, err := net.SplitHostPort(host)
-	if err != nil {
-		return host
-	}
-	return hostname
-}
-
-// SetHandler はリクエスト・レスポンス改ざん用のハンドラーを設定する
-func (m *MITMProxy) SetHandler(handler func(*http.Request, *http.Response)) {
-	m.Handler = handler
 }

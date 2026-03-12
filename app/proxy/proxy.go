@@ -7,8 +7,19 @@ import (
 	"net/url"
 )
 
-func Start(addr string) error {
-	proxy := &httputil.ReverseProxy{
+// SimpleProxy is a basic HTTP forward proxy.
+type SimpleProxy struct {
+	addr string
+}
+
+// NewSimpleProxy creates a new SimpleProxy.
+func NewSimpleProxy(addr string) *SimpleProxy {
+	return &SimpleProxy{addr: addr}
+}
+
+// Start starts the simple proxy server.
+func (s *SimpleProxy) Start() error {
+	rp := &httputil.ReverseProxy{
 		Director: func(r *http.Request) {
 			target, err := url.Parse(r.URL.String())
 			if err != nil {
@@ -24,6 +35,11 @@ func Start(addr string) error {
 		},
 	}
 
-	log.Printf("Starting simple proxy server on %s", addr)
-	return http.ListenAndServe(addr, proxy)
+	log.Printf("Starting simple proxy server on %s", s.addr)
+	return http.ListenAndServe(s.addr, rp)
+}
+
+// Start is a package-level convenience function used by existing tests.
+func Start(addr string) error {
+	return NewSimpleProxy(addr).Start()
 }
