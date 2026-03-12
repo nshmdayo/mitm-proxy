@@ -19,3 +19,15 @@ modification:
   enabled: true
   # Log verbosely
   verbose: true
+  # Headers to add/remove on requests
+  request_headers:
+    set:
+      X-MITM-Proxy: "true"
+      User-Agent: "nproxy/1.0"
+  # Headers to add/remove on responses
+  response_headers:
+    set:
+      X-MITM-Intercepted: "true"
+      X-Content-Type-Options: "nosniff"
+      X-Frame-Options: "DENY"
+      X-XSS-Protection: "1; mode=block"

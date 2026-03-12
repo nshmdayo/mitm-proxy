@@ -19,9 +19,17 @@ type MitmConfig struct {
 	CertDir   string `yaml:"cert_dir"`
 }
 
+// HeaderRules defines headers to set or remove on requests or responses.
+type HeaderRules struct {
+	Set    map[string]string `yaml:"set"`
+	Remove []string          `yaml:"remove"`
+}
+
 type ModConfig struct {
-	Enabled bool `yaml:"enabled"`
-	Verbose bool `yaml:"verbose"`
+	Enabled  bool        `yaml:"enabled"`
+	Verbose  bool        `yaml:"verbose"`
+	Request  HeaderRules `yaml:"request_headers"`
+	Response HeaderRules `yaml:"response_headers"`
 }
 
 func LoadConfig(path string) (*Config, error) {
