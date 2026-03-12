@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"nproxy/app/config"
+	"mitmproxy/app/config"
 )
 
 func TestModificationHandler(t *testing.T) {

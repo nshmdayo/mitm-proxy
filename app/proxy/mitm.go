@@ -15,8 +15,8 @@ import (
 	"net/url"
 	"time"
 
-	"nproxy/app/config"
-	"nproxy/app/handlers"
+	"mitmproxy/app/config"
+	"mitmproxy/app/handlers"
 )
 
 // singleConnListener accepts exactly one connection and then closes.

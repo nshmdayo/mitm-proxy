@@ -1,4 +1,4 @@
-module nproxy
+module mitmproxy
 
 go 1.23.0
 

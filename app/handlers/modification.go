@@ -4,7 +4,7 @@ import (
 	"log"
 	"net/http"
 
-	"nproxy/app/config"
+	"mitmproxy/app/config"
 )
 
 // ModificationHandler creates a Handler that modifies request and response headers
